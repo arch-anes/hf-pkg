@@ -17,12 +17,13 @@ def save_config(file_path: str, config: dict):
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, sort_keys=True)
 
-def install_models(config: dict):
+def install_models(config: dict) -> bool:
     models = config.get("models", {})
     if not models:
         print("No models found in config.")
-        return
+        return True
 
+    all_success = True
     for repo_id, opts in models.items():
         print(f"Downloading {repo_id}...")
         
@@ -54,6 +55,8 @@ def install_models(config: dict):
             print(f"Successfully downloaded {repo_id} to {download_path}")
         except Exception as e:
             print(f"Error downloading {repo_id}: {e}", file=sys.stderr)
+            all_success = False
+    return all_success
 
 def main():
     parser = argparse.ArgumentParser(
@@ -87,7 +90,8 @@ def main():
             parser.print_help()
             sys.exit(1)
         config = load_config(config_file)
-        install_models(config)
+        if not install_models(config):
+            sys.exit(1)
         
     elif args.command == "add":
         config = load_config(args.file)
@@ -129,7 +133,9 @@ def main():
         print(f"Added {args.repo_id} to {args.file}")
         
         # Now install the newly added model
-        install_models({"models": {args.repo_id: opts}})
+        if not install_models({"models": {args.repo_id: opts}}):
+            sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
