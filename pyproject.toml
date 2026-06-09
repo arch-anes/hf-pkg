@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hf-pkg"
+version = "0.1.0"
+description = "NPM-like dependency manager for Hugging Face models"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "huggingface_hub"
+]
+
+[tool.setuptools]
+script-files = ["hf-pkg"]

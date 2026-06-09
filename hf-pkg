@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from huggingface_hub import snapshot_download
+
+def load_config(file_path: str) -> dict:
+    path = Path(file_path)
+    if not path.exists():
+        return {"models": {}}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_config(file_path: str, config: dict):
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, sort_keys=True)
+
+def install_models(config: dict):
+    models = config.get("models", {})
+    if not models:
+        print("No models found in config.")
+        return
+
+    for repo_id, opts in models.items():
+        print(f"Downloading {repo_id}...")
+        
+        kwargs = {}
+        if "revision" in opts:
+            kwargs["revision"] = opts["revision"]
+        if "repo_type" in opts:
+            kwargs["repo_type"] = opts["repo_type"]
+        if "include" in opts:
+            kwargs["allow_patterns"] = opts["include"]
+        if "exclude" in opts:
+            kwargs["ignore_patterns"] = opts["exclude"]
+        if "local_dir" in opts:
+            kwargs["local_dir"] = opts["local_dir"]
+        if "cache_dir" in opts:
+            kwargs["cache_dir"] = opts["cache_dir"]
+        if "token" in opts:
+            kwargs["token"] = opts["token"]
+        if "force_download" in opts:
+            kwargs["force_download"] = opts["force_download"]
+        if "local_dir_use_symlinks" in opts:
+            val = opts["local_dir_use_symlinks"]
+            if val == "True": kwargs["local_dir_use_symlinks"] = True
+            elif val == "False": kwargs["local_dir_use_symlinks"] = False
+            else: kwargs["local_dir_use_symlinks"] = "auto"
+        
+        try:
+            download_path = snapshot_download(repo_id=repo_id, **kwargs)
+            print(f"Successfully downloaded {repo_id} to {download_path}")
+        except Exception as e:
+            print(f"Error downloading {repo_id}: {e}", file=sys.stderr)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="hf-pkg: NPM-like manager for Hugging Face models. Use as a standalone tool or as `hf pkg` if installed as an extension."
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    
+    install_parser = subparsers.add_parser("install", help="Install models defined in model.json")
+    install_parser.add_argument("--file", "-f", default="model.json", help="Path to the config file (default: model.json).")
+    
+    add_parser = subparsers.add_parser("add", help="Add a model to model.json and download it")
+    add_parser.add_argument("repo_id", help="Hugging Face repository ID")
+    add_parser.add_argument("filenames", nargs="*", help="Specific files to download")
+    add_parser.add_argument("--repo-type", help="Type of the repository (model, dataset, space)", default="model")
+    add_parser.add_argument("--revision", help="Revision/branch/tag (default: main)", default="main")
+    add_parser.add_argument("--include", action="append", help="File patterns to include (can be used multiple times)")
+    add_parser.add_argument("--exclude", action="append", help="File patterns to exclude (can be used multiple times)")
+    add_parser.add_argument("--local-dir", help="Local directory to download the model into")
+    add_parser.add_argument("--cache-dir", help="Path to the directory where the downloaded files will be cached")
+    add_parser.add_argument("--token", help="Hugging Face token for private/gated repos")
+    add_parser.add_argument("--force-download", action="store_true", help="Force a re-download even if the file exists locally")
+    add_parser.add_argument("--local-dir-use-symlinks", choices=["auto", "True", "False"], default="auto", help="Whether to use symlinks with local-dir")
+    add_parser.add_argument("--file", "-f", default="model.json", help="Path to the config file (default: model.json).")
+
+    args = parser.parse_args()
+
+    # If no subcommand is provided, default to install
+    if args.command is None or args.command == "install":
+        config_file = args.file if hasattr(args, 'file') else "model.json"
+        if not Path(config_file).exists() and args.command is None:
+            parser.print_help()
+            sys.exit(1)
+        config = load_config(config_file)
+        install_models(config)
+        
+    elif args.command == "add":
+        config = load_config(args.file)
+        if "models" not in config:
+            config["models"] = {}
+            
+        opts = {"revision": args.revision}
+        if args.repo_type != "model":
+            opts["repo_type"] = args.repo_type
+            
+        include = []
+        if args.include:
+            for item in args.include:
+                include.extend([p.strip() for p in item.split(",")])
+        if args.filenames:
+            include.extend(args.filenames)
+        if include:
+            opts["include"] = include
+
+        if args.exclude:
+            exclude = []
+            for item in args.exclude:
+                exclude.extend([p.strip() for p in item.split(",")])
+            opts["exclude"] = exclude
+
+        if args.local_dir:
+            opts["local_dir"] = args.local_dir
+        if args.cache_dir:
+            opts["cache_dir"] = args.cache_dir
+        if args.token:
+            opts["token"] = args.token
+        if args.force_download:
+            opts["force_download"] = True
+        if args.local_dir_use_symlinks != "auto":
+            opts["local_dir_use_symlinks"] = args.local_dir_use_symlinks
+            
+        config["models"][args.repo_id] = opts
+        save_config(args.file, config)
+        print(f"Added {args.repo_id} to {args.file}")
+        
+        # Now install the newly added model
+        install_models({"models": {args.repo_id: opts}})
+
+if __name__ == "__main__":
+    main()
